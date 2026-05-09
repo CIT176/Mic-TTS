@@ -14,8 +14,8 @@ lang = config["TTS"]["language"]
 tld = config["TTS"]["top_level_domain"]
 
 target_sr = config["audio"]["target_samplerate"]
-target_device = config["audio"]["input_device"]
-speaker_device = config["audio"]["output_device"]
+target_device = config["audio"]["input_device"] + ", Windows WASAPI"
+speaker_device = config["audio"]["output_device"] + ", Windows WASAPI"
 
 sd.default.dtype = 'float32'
 sd.default.latency = 'high'
