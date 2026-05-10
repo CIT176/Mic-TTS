@@ -18,3 +18,10 @@ A script that uses a virtual audio input device to play text to speech messages 
 - Language codes control the language of the text interpretted by gTTS
 - Top-level domain (TLD) controls the region, accent, and dialect of speech
 - The [gTTS documentation](https://gtts.readthedocs.io/en/latest/module.html#localized-accents) contains some (but not all) possible combinations of language and TLD for certain accents
+
+## 4. Route Microphone Input through Virtual Input (Optional)
+By default, a physical microphone or other input device is on its own channel and will not be picked up by VB-CABLE. To use TTS and your microphone simultaneously, you must route the input through VB-CABLE in sound settings.
+- In Windows Search or the Run Terminal (`Win + R`), open `mmsys.cpl`
+- Under the **Recording** tab, locate your microphone or input device
+- Select **Properties**, and then go to the **Listen** tab
+- Ensure ``Listen to this device`` is checked, and then under ``Playback through this device``, select ``CABLE Input (VB-Audio Virtual Cable)``
