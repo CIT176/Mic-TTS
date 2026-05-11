@@ -23,71 +23,72 @@ class TTSGeneration:
         """Converts text to speech and plays it through the specified audio device"""
         try:
             tts = gTTS(text=text, lang=lang, tld=tld)
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as f:
-                tts.save(f.name)
+        except ValueError as e:
+            raise ValueError(
+                f"Invalid gTTS parameters: lang={lang!r}, tld={tld!r}. "
+                f"Check available options from the gTTS documentation. Original error: {e}"
+            ) from e
 
-            base_audio = AudioSegment.from_mp3(f.name)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as f:
+            tts.save(f.name)
 
-            gain = max(-10, min(10, gain))
-            base_audio = base_audio.apply_gain(gain)
-            
-            # Get device info independently
-            target_info = sd.query_devices(self.target_device)
-            speaker_info = sd.query_devices(self.speaker_device)
+        base_audio = AudioSegment.from_mp3(f.name)
 
-            target_sr = int(target_info["default_samplerate"])
-            speaker_sr = int(speaker_info["default_samplerate"])
+        gain = max(-10, min(10, gain))
+        base_audio = base_audio.apply_gain(gain)
+        
+        # Get device info independently
+        target_info = sd.query_devices(self.target_device)
+        speaker_info = sd.query_devices(self.speaker_device)
 
-            # Resample independently
-            audio_target = base_audio.set_frame_rate(target_sr)
-            audio_speaker = base_audio.set_frame_rate(speaker_sr)
+        target_sr = int(target_info["default_samplerate"])
+        speaker_sr = int(speaker_info["default_samplerate"])
 
-            samples_target = np.array(audio_target.get_array_of_samples()).astype(np.float32)
-            samples_target /= np.iinfo(audio_target.array_type).max  # Normalize to [-1.0, 1.0]
+        # Resample independently
+        audio_target = base_audio.set_frame_rate(target_sr)
+        audio_speaker = base_audio.set_frame_rate(speaker_sr)
 
-            samples_speaker = np.array(audio_speaker.get_array_of_samples()).astype(np.float32)
-            samples_speaker /= np.iinfo(audio_speaker.array_type).max  # Normalize to [-1.0, 1.0]
+        samples_target = np.array(audio_target.get_array_of_samples()).astype(np.float32)
+        samples_target /= np.iinfo(audio_target.array_type).max  # Normalize to [-1.0, 1.0]
 
-            def make_callback(samples, pos_name):
-                pos = 0
-                def callback(outdata, frames, *_):
-                    nonlocal pos
-                    chunk = samples[pos:pos + frames]
-                    if len(chunk) < frames:
-                        assert outdata.shape[1] >= 1, "Output stream must have at least one channel"
-                        assert outdata.shape[0] >= len(chunk), "Output buffer too small for chunk"
-                        outdata[:len(chunk), 0] = chunk
-                        outdata[len(chunk):, 0] = 0
-                        raise sd.CallbackStop()
-                    else:
-                        assert outdata.shape[1] >= 1, "Output stream must have at least one channel"
-                        outdata[:, 0] = chunk
-                        pos += frames
-                return callback
+        samples_speaker = np.array(audio_speaker.get_array_of_samples()).astype(np.float32)
+        samples_speaker /= np.iinfo(audio_speaker.array_type).max  # Normalize to [-1.0, 1.0]
 
-            # Open both streams simultaneously
-            with sd.OutputStream(
-                device=self.target_device,
-                samplerate=target_sr,
-                channels=1,
-                dtype="float32",
-                callback=make_callback(samples_target, "target")
-            ), sd.OutputStream(
-                device=self.speaker_device,
-                samplerate=speaker_sr,
-                channels=1,
-                dtype="float32",
-                callback=make_callback(samples_speaker, "speaker")
-            ):
-                sd.sleep(int(len(samples_target) / target_sr * 1000) + 200)
+        def make_callback(samples, pos_name):
+            pos = 0
+            def callback(outdata, frames, *_):
+                nonlocal pos
+                chunk = samples[pos:pos + frames]
+                if len(chunk) < frames:
+                    assert outdata.shape[1] >= 1, "Output stream must have at least one channel"
+                    assert outdata.shape[0] >= len(chunk), "Output buffer too small for chunk"
+                    outdata[:len(chunk), 0] = chunk
+                    outdata[len(chunk):, 0] = 0
+                    raise sd.CallbackStop()
+                else:
+                    assert outdata.shape[1] >= 1, "Output stream must have at least one channel"
+                    outdata[:, 0] = chunk
+                    pos += frames
+            return callback
 
-        except Exception as e:
-            print(f"An error occured during TTS audio generation: {e}")
-            raise e
+        # Open both streams simultaneously
+        with sd.OutputStream(
+            device=self.target_device,
+            samplerate=target_sr,
+            channels=1,
+            dtype="float32",
+            callback=make_callback(samples_target, "target")
+        ), sd.OutputStream(
+            device=self.speaker_device,
+            samplerate=speaker_sr,
+            channels=1,
+            dtype="float32",
+            callback=make_callback(samples_speaker, "speaker")
+        ):
+            sd.sleep(int(len(samples_target) / target_sr * 1000) + 200)
 
-        finally:
-            if os.path.exists(f.name):
-                os.remove(f.name)
+        if os.path.exists(f.name):
+            os.remove(f.name)
 
 class TTS(customtkinter.CTkTabview):
     def __init__(self, master, tts_engine, **kwargs):
@@ -162,8 +163,8 @@ class TTS(customtkinter.CTkTabview):
         self.lang = self.config["TTS"]["default_language"]
         self.tld = self.config["TTS"]["default_top_level_domain"]
 
-        available_languages = ["en", "fr", "zh-CN", "zh-TW", "pt", "es"]
-        available_tlds = ["com", "com.au", "com.br", "com.mx", "com.ng", "co.in", "co.uk", "co.za", "ca", "es", "fr", "ie", "us"]
+        available_languages = [lang.strip() for lang in self.config["TTS"]["languages"].split(",")]
+        available_tlds = [tld.strip() for tld in self.config["TTS"]["tlds"].split(",")]
 
         # Reorder to put defaults first as they appear in the config
         languages = [self.lang] + [lang for lang in available_languages if lang != self.lang]
