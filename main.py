@@ -6,11 +6,14 @@ from pydub import AudioSegment
 import tempfile
 import configparser
 import os
+import sys
 
 class TTSGeneration:
     def __init__(self):
+        self.app_path = os.path.dirname if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))
+        self.config_path = os.path.join(self.app_path, "config.ini")
         self.config = configparser.ConfigParser()
-        self.config.read('config.ini')
+        self.config.read(self.config_path)
 
         self.target_sr = self.config["audio"]["target_samplerate"]
         self.target_device = self.config["audio"]["input_device"] + ", Windows WASAPI"
@@ -95,8 +98,10 @@ class TTS(customtkinter.CTkTabview):
         super().__init__(master, **kwargs)
         self.tts_engine = tts_engine
 
+        self.app_path = os.path.dirname if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))
+        self.config_path = os.path.join(self.app_path, "config.ini")
         self.config = configparser.ConfigParser()
-        self.config.read('config.ini')
+        self.config.read(self.config_path)
 
         self.add("TTS")
         self.add("Settings")
@@ -225,22 +230,24 @@ class App(customtkinter.CTk):
         self.title("Text to Speech")
         self.iconbitmap("mic.ico")
         
-        config = configparser.ConfigParser()
-        config.read('config.ini')
+        self.app_path = os.path.dirname if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))
+        self.config_path = os.path.join(self.app_path, "config.ini")
+        self.config = configparser.ConfigParser()
+        self.config.read(self.config_path)
 
         # Window appearance and behaviour
-        height = int(config["window"]["window_height"])
-        width = int(config["window"]["window_width"])
+        height = int(self.config["window"]["window_height"])
+        width = int(self.config["window"]["window_width"])
         self.geometry(f"{width}x{height}")
         self.minsize(380, 200)
 
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
-        is_resizeable = config["window"]["is_resizeable"].strip().lower() == "true"
+        is_resizeable = self.config["window"]["is_resizeable"].strip().lower() == "true"
         self.resizable(is_resizeable, is_resizeable)
 
-        is_always_on_top = config["window"]["always_on_top"].strip().lower() == "true"
+        is_always_on_top = self.config["window"]["always_on_top"].strip().lower() == "true"
         self.attributes("-topmost", is_always_on_top)
 
         self.tts_engine = TTSGeneration()
