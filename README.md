@@ -3,7 +3,7 @@ A script that uses a virtual audio input device to play text to speech messages 
 
 ### Requires:
 - Python (3.12 or similar)
-- Code editor or IDE of choice
+- Text editor or IDE of choice (for configuration only)
 
 ## 1. Installation
 - Use `git clone` or download the repository
