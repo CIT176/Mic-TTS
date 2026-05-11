@@ -8,9 +8,9 @@ import configparser
 import os
 import sys
 
-class TTSGeneration:
+class TTSGeneration():
     def __init__(self):
-        self.app_path = os.path.dirname if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))
+        self.app_path = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))
         self.config_path = os.path.join(self.app_path, "config.ini")
         self.config = configparser.ConfigParser()
         self.config.read(self.config_path)
@@ -94,14 +94,9 @@ class TTSGeneration:
             os.remove(f.name)
 
 class TTS(customtkinter.CTkTabview):
-    def __init__(self, master, tts_engine, **kwargs):
+    def __init__(self, master, tts_engine, config, **kwargs):
         super().__init__(master, **kwargs)
         self.tts_engine = tts_engine
-
-        self.app_path = os.path.dirname if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))
-        self.config_path = os.path.join(self.app_path, "config.ini")
-        self.config = configparser.ConfigParser()
-        self.config.read(self.config_path)
 
         self.add("TTS")
         self.add("Settings")
@@ -158,18 +153,17 @@ class TTS(customtkinter.CTkTabview):
         self.gain_value_label = customtkinter.CTkLabel(
             master=self.tab("Settings"),
             text=f"+0 dB",
-            text_color="yellow" if self.gain >= 4.0 else "red" if self.gain >= 7.0 else "white",
             font=("Arial", 20)
         )
         self.gain_value_label.grid(row=1, column=1, padx=20, pady=(0, 15), sticky="ne")
 
         # Language and TLD selection
         # ------------------
-        self.lang = self.config["TTS"]["default_language"]
-        self.tld = self.config["TTS"]["default_top_level_domain"]
+        self.lang = config["TTS"]["default_language"]
+        self.tld = config["TTS"]["default_top_level_domain"]
 
-        available_languages = [lang.strip().strip('"') for lang in self.config["TTS"]["languages"].split(",")]
-        available_tlds = [tld.strip().strip('"') for tld in self.config["TTS"]["tlds"].split(",")]
+        available_languages = [lang.strip().strip('"') for lang in config["TTS"]["languages"].split(",")]
+        available_tlds = [tld.strip().strip('"') for tld in config["TTS"]["tlds"].split(",")]
 
         # Reorder to put defaults first as they appear in the config
         languages = [self.lang] + [lang for lang in available_languages if lang != self.lang]
@@ -215,7 +209,8 @@ class TTS(customtkinter.CTkTabview):
 
     def change_volume(self, value):
         self.gain = round(float(value), 1)
-        self.gain_value_label.configure(text=f"{"+" if self.gain >= 0 else ""}{self.gain} dB")
+        color = "red" if self.gain >= 7.0 else "yellow" if self.gain >= 4.0 else "white"
+        self.gain_value_label.configure(text=f"{"+" if self.gain >= 0 else ""}{self.gain} dB", text_color=color)
         
     def change_lang(self, choice):
         self.lang = choice
@@ -230,7 +225,7 @@ class App(customtkinter.CTk):
         self.title("Text to Speech")
         self.iconbitmap("mic.ico")
         
-        self.app_path = os.path.dirname if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))
+        self.app_path = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))
         self.config_path = os.path.join(self.app_path, "config.ini")
         self.config = configparser.ConfigParser()
         self.config.read(self.config_path)
@@ -253,7 +248,7 @@ class App(customtkinter.CTk):
         self.tts_engine = TTSGeneration()
 
         # Tab view grid configuration
-        self.tab_view = TTS(master=self, tts_engine=self.tts_engine)
+        self.tab_view = TTS(master=self, tts_engine=self.tts_engine, config=self.config)
         self.tab_view.grid(row=0, column=0, padx=0, pady=0, stick="nsew")
 
         self.tab_view.tab("TTS").grid_rowconfigure(0, weight=1)
