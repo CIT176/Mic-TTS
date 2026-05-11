@@ -1,4 +1,4 @@
-import tkinter as tk
+import customtkinter
 import sounddevice as sd
 import numpy as np
 from gtts import gTTS
@@ -7,106 +7,252 @@ import tempfile
 import configparser
 import os
 
-config = configparser.ConfigParser()
-config.read('config.ini')
+class TTSGeneration:
+    def __init__(self):
+        self.config = configparser.ConfigParser()
+        self.config.read('config.ini')
 
-lang = config["TTS"]["language"]
-tld = config["TTS"]["top_level_domain"]
+        self.target_sr = self.config["audio"]["target_samplerate"]
+        self.target_device = self.config["audio"]["input_device"] + ", Windows WASAPI"
+        self.speaker_device = self.config["audio"]["output_device"] + ", Windows WASAPI"
 
-target_sr = config["audio"]["target_samplerate"]
-target_device = config["audio"]["input_device"] + ", Windows WASAPI"
-speaker_device = config["audio"]["output_device"] + ", Windows WASAPI"
+        sd.default.dtype = "float32"
+        sd.default.latency = "high"
 
-sd.default.dtype = 'float32'
-sd.default.latency = 'high'
+    def speak(self, text, lang, tld, gain: float = 0):
+        """Converts text to speech and plays it through the specified audio device"""
+        try:
+            tts = gTTS(text=text, lang=lang, tld=tld)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as f:
+                tts.save(f.name)
 
-def speak(text):
-    """Converts text to speech and plays it through the specified audio device"""
-    try:
-        tts = gTTS(text=text, lang=lang, tld=tld)
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as fp:
-            tts.save(fp.name)
+            base_audio = AudioSegment.from_mp3(f.name)
 
-        base_audio = AudioSegment.from_mp3(fp.name)
+            gain = max(-10, min(10, gain))
+            base_audio = base_audio.apply_gain(gain)
+            
+            # Get device info independently
+            target_info = sd.query_devices(self.target_device)
+            speaker_info = sd.query_devices(self.speaker_device)
+
+            target_sr = int(target_info["default_samplerate"])
+            speaker_sr = int(speaker_info["default_samplerate"])
+
+            # Resample independently
+            audio_target = base_audio.set_frame_rate(target_sr)
+            audio_speaker = base_audio.set_frame_rate(speaker_sr)
+
+            samples_target = np.array(audio_target.get_array_of_samples()).astype(np.float32)
+            samples_target /= np.iinfo(audio_target.array_type).max  # Normalize to [-1.0, 1.0]
+
+            samples_speaker = np.array(audio_speaker.get_array_of_samples()).astype(np.float32)
+            samples_speaker /= np.iinfo(audio_speaker.array_type).max  # Normalize to [-1.0, 1.0]
+
+            def make_callback(samples, pos_name):
+                pos = 0
+                def callback(outdata, frames, *_):
+                    nonlocal pos
+                    chunk = samples[pos:pos + frames]
+                    if len(chunk) < frames:
+                        assert outdata.shape[1] >= 1, "Output stream must have at least one channel"
+                        assert outdata.shape[0] >= len(chunk), "Output buffer too small for chunk"
+                        outdata[:len(chunk), 0] = chunk
+                        outdata[len(chunk):, 0] = 0
+                        raise sd.CallbackStop()
+                    else:
+                        assert outdata.shape[1] >= 1, "Output stream must have at least one channel"
+                        outdata[:, 0] = chunk
+                        pos += frames
+                return callback
+
+            # Open both streams simultaneously
+            with sd.OutputStream(
+                device=self.target_device,
+                samplerate=target_sr,
+                channels=1,
+                dtype="float32",
+                callback=make_callback(samples_target, "target")
+            ), sd.OutputStream(
+                device=self.speaker_device,
+                samplerate=speaker_sr,
+                channels=1,
+                dtype="float32",
+                callback=make_callback(samples_speaker, "speaker")
+            ):
+                sd.sleep(int(len(samples_target) / target_sr * 1000) + 200)
+
+        except Exception as e:
+            print(f"An error occured during TTS audio generation: {e}")
+            raise e
+
+        finally:
+            if os.path.exists(f.name):
+                os.remove(f.name)
+
+class TTS(customtkinter.CTkTabview):
+    def __init__(self, master, tts_engine, **kwargs):
+        super().__init__(master, **kwargs)
+        self.tts_engine = tts_engine
+
+        self.config = configparser.ConfigParser()
+        self.config.read('config.ini')
+
+        self.add("TTS")
+        self.add("Settings")
+
+        # ------------------------------------
+        # TTS Tab
+        # ------------------------------------
+        # Text input field 
+        # ------------------
+        self.textbox = customtkinter.CTkTextbox(
+            master=self.tab("TTS"),
+            font=("Arial", 14)
+        )
+        self.textbox.grid(row=0, column=0, padx=20, pady=(10, 0), sticky="nsew")
+        self.textbox.configure(wrap="word")
+        self.textbox.bind("<Return>", self.message_submit)
+
+        # Submission button
+        # ------------------
+        self.button = customtkinter.CTkButton(
+            master=self.tab("TTS"),
+            height=40,
+            width=150,
+            text="Speak Message",
+            font=("Arial", 14),
+            command=self.message_submit
+        )
+        self.button.grid(row=1, column=0, pady=(10, 5))
+
+        # ------------------------------------
+        # Settings Tab
+        # ------------------------------------
+        # Volume adjustment
+        # ------------------
+        self.gain = 0.0
+
+        self.volume_label = customtkinter.CTkLabel(
+            master=self.tab("Settings"),
+            text="Volume [±10 dB]",
+            font=("Arial", 16)
+        )
+        self.volume_label.grid(row=0, column=0, padx=20, pady=(10, 5), sticky="nw")
+
+        self.volume = customtkinter.CTkSlider(
+            master=self.tab("Settings"),
+            height=20,
+            width=250,
+            from_=-10,
+            to=10,
+            command=self.change_volume
+        )
+        self.volume.grid(row=1, column=0, padx=20, pady=(0, 15), sticky="nw")
         
-        # Get device info independently
-        target_info = sd.query_devices(target_device)
-        speaker_info = sd.query_devices(speaker_device)
+        self.gain_value_label = customtkinter.CTkLabel(
+            master=self.tab("Settings"),
+            text=f"+0 dB",
+            text_color="yellow" if self.gain >= 4.0 else "red" if self.gain >= 7.0 else "white",
+            font=("Arial", 20)
+        )
+        self.gain_value_label.grid(row=1, column=1, padx=20, pady=(0, 15), sticky="ne")
 
-        target_sr = int(target_info["default_samplerate"])
-        speaker_sr = int(speaker_info["default_samplerate"])
+        # Language and TLD selection
+        # ------------------
+        self.lang = self.config["TTS"]["default_language"]
+        self.tld = self.config["TTS"]["default_top_level_domain"]
 
-        # Resample independently
-        audio_target = base_audio.set_frame_rate(target_sr)
-        audio_speaker = base_audio.set_frame_rate(speaker_sr)
+        available_languages = ["en", "fr", "zh-CN", "zh-TW", "pt", "es"]
+        available_tlds = ["com", "com.au", "com.br", "com.mx", "com.ng", "co.in", "co.uk", "co.za", "ca", "es", "fr", "ie", "us"]
 
-        samples_target = np.array(audio_target.get_array_of_samples()).astype(np.float32)
-        samples_target /= np.iinfo(audio_target.array_type).max  # Normalize to [-1.0, 1.0]
+        # Reorder to put defaults first as they appear in the config
+        languages = [self.lang] + [lang for lang in available_languages if lang != self.lang]
+        tlds = [self.tld] + [tld for tld in available_tlds if tld != self.tld]
 
-        samples_speaker = np.array(audio_speaker.get_array_of_samples()).astype(np.float32)
-        samples_speaker /= np.iinfo(audio_speaker.array_type).max  # Normalize to [-1.0, 1.0]
+        self.lang_label = customtkinter.CTkLabel(
+            master=self.tab("Settings"),
+            text="Language / Region",
+            font=("Arial", 16)
+        )
+        self.lang_label.grid(row=3, column=0, padx=20, pady=0, sticky="nw")
 
-        def make_callback(samples, pos_name):
-            pos = 0
-            def callback(outdata, frames, *_):
-                nonlocal pos
-                chunk = samples[pos:pos + frames]
-                if len(chunk) < frames:
-                    assert outdata.shape[1] >= 1, "Output stream must have at least one channel"
-                    assert outdata.shape[0] >= len(chunk), "Output buffer too small for chunk"
-                    outdata[:len(chunk), 0] = chunk
-                    outdata[len(chunk):, 0] = 0
-                    raise sd.CallbackStop()
-                else:
-                    assert outdata.shape[1] >= 1, "Output stream must have at least one channel"
-                    outdata[:, 0] = chunk
-                    pos += frames
-            return callback
+        self.lang_menu = customtkinter.CTkOptionMenu(
+            master=self.tab("Settings"),
+            values=languages,
+            command=self.change_lang
+        )
+        self.lang_menu.grid(row=3, column=1, padx=20, pady=0, sticky="ne")
 
-        # Open both streams simultaneously
-        with sd.OutputStream(
-            device=target_device,
-            samplerate=target_sr,
-            channels=1,
-            dtype='float32',
-            callback=make_callback(samples_target, "target")
-        ), sd.OutputStream(
-            device=speaker_device,
-            samplerate=speaker_sr,
-            channels=1,
-            dtype='float32',
-            callback=make_callback(samples_speaker, "speaker")
-        ):
-            sd.sleep(int(len(samples_target) / target_sr * 1000) + 200)
+        self.volume_label = customtkinter.CTkLabel(
+            master=self.tab("Settings"),
+            text="Top-Level Domain",
+            font=("Arial", 16)
+        )
+        self.volume_label.grid(row=4, column=0, padx=20, pady=10, sticky="nw")
 
-    except Exception as e:
-        print(f"An error occured: {e}")
-        raise e
+        self.tld_menu = customtkinter.CTkOptionMenu(
+            master=self.tab("Settings"),
+            values=tlds,
+            command=self.change_tld
+        )
+        self.tld_menu.grid(row=4, column=1, padx=20, pady=10, sticky="ne")
 
-    finally:
-        if os.path.exists(fp.name):
-            os.remove(fp.name)
+    def message_submit(self, event = None):
+        message = self.textbox.get("0.0", "end").strip()
+        
+        if not message:
+            return "break"
 
-def submit():
-    message = text_widget.get("1.0", tk.END).strip()
-    if message:
-        speak(message)
-        text_widget.delete("1.0", tk.END)
+        self.tts_engine.speak(message, lang=self.lang, tld=self.tld, gain=self.gain)
+        self.textbox.delete("0.0", "end")
+        return "break"
 
-root = tk.Tk()
-root.title("Text to Speech")
-root.geometry(f"{config["window"]["window_width"]}x{config["window"]["window_height"]}")
-root.resizable(False, False)
-root.attributes("-topmost", (config["window"]["always_on_top"].strip().lower() == "true"))
+    def change_volume(self, value):
+        self.gain = round(float(value), 1)
+        self.gain_value_label.configure(text=f"{"+" if self.gain >= 0 else ""}{self.gain} dB")
+        
+    def change_lang(self, choice):
+        self.lang = choice
 
-main_label = tk.Label(root, text="Enter TTS Message:")
-main_label.pack(pady=10)
+    def change_tld(self, choice):
+        self.tld = choice
 
-text_widget = tk.Text(root, height=5, width=35)
-text_widget.pack(padx=10, pady=10)
-text_widget.focus_set()
+class App(customtkinter.CTk):
+    def __init__(self):
+        super().__init__()
+        
+        self.title("Text to Speech")
+        self.iconbitmap("mic.ico")
+        
+        config = configparser.ConfigParser()
+        config.read('config.ini')
 
-submit_btn = tk.Button(root, text="Speak Message", command=submit, padx=40, pady=20)
-submit_btn.pack()
+        # Window appearance and behaviour
+        height = int(config["window"]["window_height"])
+        width = int(config["window"]["window_width"])
+        self.geometry(f"{width}x{height}")
+        self.minsize(380, 200)
 
-root.mainloop()
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+
+        is_resizeable = config["window"]["is_resizeable"].strip().lower() == "true"
+        self.resizable(is_resizeable, is_resizeable)
+
+        is_always_on_top = config["window"]["always_on_top"].strip().lower() == "true"
+        self.attributes("-topmost", is_always_on_top)
+
+        self.tts_engine = TTSGeneration()
+
+        # Tab view grid configuration
+        self.tab_view = TTS(master=self, tts_engine=self.tts_engine)
+        self.tab_view.grid(row=0, column=0, padx=0, pady=0, stick="nsew")
+
+        self.tab_view.tab("TTS").grid_rowconfigure(0, weight=1)
+        self.tab_view.tab("TTS").grid_columnconfigure(0, weight=1)
+
+        self.tab_view.tab("Settings").grid_columnconfigure(0, weight=1)
+
+if __name__ == "__main__":
+    app = App()
+    app.mainloop()
