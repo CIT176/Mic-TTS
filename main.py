@@ -163,8 +163,8 @@ class TTS(customtkinter.CTkTabview):
         self.lang = self.config["TTS"]["default_language"]
         self.tld = self.config["TTS"]["default_top_level_domain"]
 
-        available_languages = [lang.strip() for lang in self.config["TTS"]["languages"].split(",")]
-        available_tlds = [tld.strip() for tld in self.config["TTS"]["tlds"].split(",")]
+        available_languages = [lang.strip().strip('"') for lang in self.config["TTS"]["languages"].split(",")]
+        available_tlds = [tld.strip().strip('"') for tld in self.config["TTS"]["tlds"].split(",")]
 
         # Reorder to put defaults first as they appear in the config
         languages = [self.lang] + [lang for lang in available_languages if lang != self.lang]
