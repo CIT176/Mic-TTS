@@ -13,7 +13,7 @@ A script that uses a virtual audio input device to play text to speech messages 
 - Download and install the [VB-CABLE Virtual Audio Device](https://vb-audio.com/Cable)
 - Configure the output device in `config.ini` to match the name of your headphones, speakers, or output device as it appears in audio settings
 - Set the input device for your desired application to be VB-CABLE
-* Your physical microphone or other input device will no longer, by default, be picked up by that application (see **Step 4**)
+- Your physical microphone or other input device will no longer, by default, be picked up by that application (see **Step 4**)
 
 ## 3. Configure Region and Accent
 - Language codes control the language of the text interpretted by gTTS
@@ -29,5 +29,7 @@ By default, a physical microphone or other input device is on its own channel an
 - Ensure ``Listen to this device`` is checked, and then under ``Playback through this device``, select ``CABLE Input (VB-Audio Virtual Cable)``
 
 ## Additional Notes
-* The minmum window size is `380x200` and the default, configurable size is `440x220` with resizing disabled. While it is possible to adjust these settings under the "window" category of `config.ini` (minimum is not configurable to preserve usability), it is not reccomended as all content was designed to fit within the preset values.
-* Under the **Settings** tab, you can adjust the gain (volume) of TTS messages by ±10 decibels (limits are not configurable). Be wary that anything in excess of ~5 dB will be extremely loud because dB is on a logarithmic scale.
+- VB-CABLE is not compatible with Linux operating systems. This application was built on Windows 11 and may not run or function as intended on MacOS.
+- The field `device_suffix` contains `, Windows WASAPI` by default — a Windows-exclusive audio driver. If you are on Windows, leave this as is. On MacOS, you will need to change or remove this.
+- The minmum window size is `380x200` and the default, configurable size is `440x220` with resizing disabled. While it is possible to adjust these settings under the "window" category of `config.ini` (minimum is not configurable to preserve usability), it is not reccomended as all content was designed to fit within the preset values.
+- Under the **Settings** tab, you can adjust the gain (volume) of TTS messages by ±10 decibels (limits are not configurable). Be wary that anything in excess of ~5 dB will be extremely loud because dB is on a logarithmic scale.
